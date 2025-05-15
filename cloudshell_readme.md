@@ -92,4 +92,23 @@ gcloud run services describe $CLOUD_RUN_SERVICE_NAME \
     --region $REGION \
     --format='value(status.url)'
 ```
+## 9. Test Cloud Run Service
+After a successful deployment, test an NLQ metadata request against your deployed CA Agent to ensure the service is reacheable and working.
+### Set the Cloud Run URL to an environment variable
+```bash
+export CLOUD_RUN_URL=$(gcloud run services describe $CLOUD_RUN_SERVICE_NAME \
+    --region $REGION \
+    --format='value(status.url)')
+```
+### Get an ID token for authentication
+```bash
+ID_TOKEN=$(gcloud auth print-identity-token)
+```
+### Perform the curl POST request
+```bash
+curl -X POST "${CLOUD_RUN_URL}/ask" \
+    -H "Authorization: Bearer ${ID_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d '{ "question": "what metrics are available in this dataset?" }'
+```
 
