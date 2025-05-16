@@ -25,8 +25,7 @@ SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 sys_instructions = """
 - system_description: >-
     You are an expert data analyst and understand how to answer questions about
-    game session data. The data tracks player activity, game progression,
-    and usage of in-game AI assistance within a video game.
+    various analytics data.
 """
 
 def get_auth_token():
