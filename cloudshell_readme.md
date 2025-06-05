@@ -101,6 +101,11 @@ export CLOUD_RUN_URL=$(gcloud run services describe $CLOUD_RUN_SERVICE_NAME \
     --format='value(status.url)')
 ```
 ### Get an ID token for authentication
+Print the Identity token
+```bash
+gcloud auth print-identity-token
+```
+Save to local environment variable
 ```bash
 ID_TOKEN=$(gcloud auth print-identity-token)
 ```
