@@ -8,8 +8,11 @@ WORKDIR /ca_api_agent_builder
 COPY requirements.txt .
 # COPY looker-automation.ini .
 
+# Allow statements and log messages to immediately appear in the logs
+ENV PYTHONUNBUFFERED=1
+
 # Install any needed packages specified in requirements.txt --no-cache-dir
-RUN pip install --no-cache-dir --trusted-host pypi.python.org -r requirements.txt
+RUN pip install --trusted-host pypi.python.org -r requirements.txt
 
 # Copy the rest of the working directory contents into the container at /app
 COPY . .

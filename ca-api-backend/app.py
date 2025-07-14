@@ -2,7 +2,7 @@ import asyncio
 import aiohttp
 import json
 import logging
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import JSONResponse # Use JSONResponse for non-streaming JSON output
 from pydantic import BaseModel
 from typing import Optional
@@ -56,7 +56,7 @@ class QuestionRequest(BaseModel):
 app = FastAPI()
 
 # Your original NLQ function adapted to wait for the full response
-async def process_nlq_request(question: str):
+async def process_nlq_request(question: str, access_token: str):
     """
     Processes the natural language question, waits for the full response
     from the external API, and returns the complete JSON result.
@@ -68,7 +68,8 @@ async def process_nlq_request(question: str):
         # or a secrets manager in production.
         client_id = os.environ.get("LOOKER_CLIENT_ID", "")
         client_secret = os.environ.get("LOOKER_CLIENT_SECRET", "")
-        PROJECT = os.environ.get("PROJECT", "")
+        PROJECT_ID = os.environ.get("PROJECT", "")
+        PROJECT = f"projects/{PROJECT_ID}/locations/global"
 
         payload = {
             "project": PROJECT,
@@ -79,7 +80,7 @@ async def process_nlq_request(question: str):
                     }
                 }
             ],
-            "context": {
+            "inlineContext": {
                 "systemInstruction": f"""{CORTADO_SYS_INSTRUCTIONS}""",
                 "datasourceReferences": {
                     "looker": {
@@ -92,9 +93,8 @@ async def process_nlq_request(question: str):
                         ],
                         "credentials": {
                             "oauth": {
-                                "secret": {
-                                    "client_id": client_id,
-                                    "client_secret": client_secret
+                                "token": {
+                                    "access_token": access_token
                                 }
                             }
                         }
@@ -107,7 +107,7 @@ async def process_nlq_request(question: str):
             "Content-Type": "application/json",
             "Accept": "text/event-stream" # Still request event-stream from upstream
         }
-        url = f"https://dataqna.googleapis.com/v1alpha1/projects/{PROJECT}:askQuestion"
+        url = f"https://geminidataanalytics.googleapis.com/v1alpha/projects/{PROJECT_ID}/locations/global:chat"
 
         data = []
 
@@ -158,7 +158,7 @@ async def process_nlq_request(question: str):
                                     buffer = buffer[end_idx:]
                                     break # Important: Break after error
                                 buffer = buffer[end_idx:]
-                                data.append(json.loads(json_str))
+                                yield json.loads(json_str)
                                 await asyncio.sleep(0)
 
                             except Exception as e:
@@ -167,33 +167,48 @@ async def process_nlq_request(question: str):
 
                     # Handle any remaining complete JSON in buffer
                     if buffer.strip() and buffer.strip() != "]":
-                       data.append(json.loads(buffer))
+                       yield json.loads(buffer)
                 else:
                     # format json object error message that can be parsed in the frontend
                     error_text = await resp.text()
                     logging.error(f"Error from server: {resp.status} - {error_text}")
                     yield str(json.dumps({"error": error_text, "code": resp.status}))
         
-        yield data
     except:
         logging.error("some Errror")
 
 
 @app.post("/ask")
-async def ask_endpoint(request: QuestionRequest):
+async def ask_endpoint(request: QuestionRequest, authorization: Optional[str] = Header(None)):
     """
     FastAPI endpoint to receive a natural language question and return
     the complete analytics response as JSON.
     """
+    token = None
+    if authorization:
+        parts = authorization.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
+        else:
+            raise HTTPException(status_code=401, detail="Invalid Authorization header format. Expected 'Bearer <token>'")
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Authorization token is missing.")
+
     logger.info(f"Received question: {request.question}")
     # Call the function that waits for the full response
-    chunks = []
-    async for chunk in process_nlq_request(request.question):
-        chunks = chunk
-    print("Chunks: ", chunks)
-    text_resp = chunks[len(chunks) - 1]['systemMessage']['text']['parts'][0]
+    data = []
+    async for chunk in process_nlq_request(request.question,token):
+        print(chunk, type(chunk))
+        if 'data' in chunk['systemMessage']:
+            print(chunk['systemMessage'])
+            if 'result' in chunk['systemMessage']['data']:
+                print(chunk['systemMessage']['data'])
+                data = chunk['systemMessage']['data']['result']['data']
+                break
+    print("Chunks: ", data)
 
-    return JSONResponse(content=text_resp, status_code=200)
+    return JSONResponse(content=data, status_code=200)
 
 
 # Optional: Add a root endpoint for health checks

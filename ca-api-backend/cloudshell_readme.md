@@ -26,7 +26,7 @@ gcloud services enable serviceusage.googleapis.com \
     run.googleapis.com \
     secretmanager.googleapis.com \
     dialogflow.googleapis.com \
-    dataqna.googleapis.com
+    geminidataanalytics.googleapis.com
 ```
 THEN, you must wait a bit. These APIs need time to activate and propagate changes across regions. Take a short break, then proceed with the next step.
 ## Grant Permissions
@@ -47,29 +47,6 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member "serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
     --role "roles/aiplatform.user"
 ```
-## Create Secrets in Secret Manager
-Create secrets for your Looker API credentials (`LOOKER_CLIENT_ID` and `LOOKER_CLIENT_SECRET`) in Secret Manager. These will be securely accessed by your Cloud Run service. Replace the `your-looker-client-xxx` with the valid client id and secret for your Looker API Credentials.
-```bash
-echo -n "your-looker-client-id" | gcloud secrets create LOOKER_CLIENT_ID \
-    --replication-policy=user-managed \
-    --locations=$REGION \
-    --data-file=-
-
-echo -n "your-looker-client-secret" | gcloud secrets create LOOKER_CLIENT_SECRET \
-    --replication-policy=user-managed \
-    --locations=$REGION \
-    --data-file=-
-```
-### Grant the Cloud Run service account access to these secrets
-```bash
-gcloud secrets add-iam-policy-binding LOOKER_CLIENT_ID \
-    --member "serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
-    --role "roles/secretmanager.secretAccessor"
-
-gcloud secrets add-iam-policy-binding LOOKER_CLIENT_SECRET \
-    --member "serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
-    --role "roles/secretmanager.secretAccessor"
-```
 ## Edit Configuration in Code
 Before deploying, ensure your application code is configured to read the environment variables and secrets. You might need to edit a configuration file or environment variables within your service's source code to use the `PROJECT_ID`, `LOOKER_INSTANCE`, `LOOKML_MODEL`, and `LOOKML_EXPLORE` values.
 ## Deploy Cloud Run Service
@@ -82,8 +59,7 @@ gcloud run deploy $CLOUD_RUN_SERVICE_NAME \
     --set-env-vars "LOOKER_INSTANCE=$LOOKER_INSTANCE" \
     --set-env-vars "LOOKML_MODEL=$LOOKML_MODEL" \
     --set-env-vars "LOOKML_EXPLORE=$LOOKML_EXPLORE" \
-    --update-secrets LOOKER_CLIENT_ID=LOOKER_CLIENT_ID:latest,LOOKER_CLIENT_SECRET=LOOKER_CLIENT_SECRET:latest \
-    --no-allow-unauthenticated
+    --allow-unauthenticated
 ```
 ## Copy Deployed Cloud Run URL
 After successful deployment, the URL of your Cloud Run service will be printed. Copy this URL, as it will be needed for your frontend setup.
