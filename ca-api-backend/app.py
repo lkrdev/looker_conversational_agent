@@ -21,6 +21,9 @@ import requests
 # --- Cortado Setup ---
 SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 
+LOOKER_CLIENT_ID = os.environ.get("LOOKER_CLIENT_ID","")
+LOOKER_CLIENT_SECRET = os.environ.get("LOOKER_CLIENT_SECRET","")
+
 # CA API System Instructions
 sys_instructions = """
 - system_description: >-
