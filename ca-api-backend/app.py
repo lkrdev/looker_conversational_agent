@@ -64,12 +64,28 @@ async def process_nlq_request(question: str, access_token: str):
     try:
         token = get_auth_token() # Get your auth token
 
-        # SECURITY RISK: Hardcoded credentials. Move these to environment variables
-        # or a secrets manager in production.
-        client_id = os.environ.get("LOOKER_CLIENT_ID", "")
-        client_secret = os.environ.get("LOOKER_CLIENT_SECRET", "")
+       if not token:
+            raise HTTPException(status_code=500, detail="Could not obtain Google Auth token for Cortado API.")
+
         PROJECT_ID = os.environ.get("PROJECT", "")
+        if not PROJECT_ID:
+            raise HTTPException(status_code=500, detail="GCP PROJECT environment variable not set for Cortado API.")
+
         PROJECT = f"projects/{PROJECT_ID}/locations/global"
+
+        oauth_payload = {
+            "secret": {
+                "client_id": LOOKER_CLIENT_ID,
+                "client_secret": LOOKER_CLIENT_SECRET
+            }
+        }
+
+        if looker_access_token:
+            oauth_payload = {
+                "token": {
+                    "access_token": looker_access_token
+                }
+            }
 
         payload = {
             "project": PROJECT,
@@ -92,11 +108,7 @@ async def process_nlq_request(question: str, access_token: str):
                             }
                         ],
                         "credentials": {
-                            "oauth": {
-                                "token": {
-                                    "access_token": access_token
-                                }
-                            }
+                            "oauth": oauth_payload
                         }
                     }
                 }
@@ -184,31 +196,39 @@ async def ask_endpoint(request: QuestionRequest, authorization: Optional[str] = 
     FastAPI endpoint to receive a natural language question and return
     the complete analytics response as JSON.
     """
-    token = None
-    if authorization:
-        parts = authorization.split()
-        if len(parts) == 2 and parts[0].lower() == "bearer":
-            token = parts[1]
-        else:
-            raise HTTPException(status_code=401, detail="Invalid Authorization header format. Expected 'Bearer <token>'")
-    
-    if not token:
-        raise HTTPException(status_code=401, detail="Authorization token is missing.")
+    looker_access_token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        looker_access_token = authorization.split(" ")[1]
+        logger.info(f"Received Looker Access Token in header for /ask: {looker_access_token[:10]}...")
 
     logger.info(f"Received question: {request.question}")
-    # Call the function that waits for the full response
-    data = []
-    async for chunk in process_nlq_request(request.question,token):
-        print(chunk, type(chunk))
-        if 'data' in chunk['systemMessage']:
-            print(chunk['systemMessage'])
-            if 'result' in chunk['systemMessage']['data']:
-                print(chunk['systemMessage']['data'])
-                data = chunk['systemMessage']['data']['result']['data']
-                break
-    print("Chunks: ", data)
 
-    return JSONResponse(content=data, status_code=200)
+    data = {
+        "vis": {},
+        "summary": "",
+        "data": [],
+        "code_interpreter": []
+    }
+    # Pass the (optional) Looker access token to the NLQ processing function
+    async for chunk in process_nlq_request(request.question, looker_access_token, request.explore, request.model):
+        print(f"Processed chunk: {chunk}") # For debugging purposes
+        if 'error' in chunk: # Handle errors yielded by process_nlq_request
+            raise HTTPException(status_code=chunk.get("code", 500), detail=chunk["error"])
+
+        if 'systemMessage' in chunk:
+            if 'chart' in chunk['systemMessage'] and 'result' in chunk['systemMessage']['chart'] and 'vegaConfig' in chunk['systemMessage']['chart']['result']:
+                data['vis'] = chunk['systemMessage']['chart']['result']['vegaConfig']
+            if 'text' in chunk['systemMessage'] and 'parts' in chunk['systemMessage']['text']:
+                data['summary'] = chunk['systemMessage']['text']['parts'][0]
+            if 'data' in chunk['systemMessage'] and 'result' in chunk['systemMessage']['data']:
+                data['data'] = chunk['systemMessage']['data']['result']['data']
+            # Add other data types as needed from Cortado API response, e.g., 'code_interpreter'
+            if 'code' in chunk['systemMessage'] and 'codeInterpreter' in chunk['systemMessage']['code']:
+                data['code_interpreter'] = chunk['systemMessage']['code']['codeInterpreter']
+
+    logger.info(f"Final aggregated response for /ask: {json.dumps(data, indent=2)[:500]}...")
+
+    return JSONResponse(content=data['data'], status_code=200)
 
 
 # Optional: Add a root endpoint for health checks
